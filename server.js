@@ -2,37 +2,40 @@ const express = require('express');
 const puppeteer = require('puppeteer');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const path = require('path'); // Dodajemy moduł path do obsługi ścieżek
+const path = require('path');
 
 const app = express();
-const PORT = 3080;
 
-// Pozwól na dostęp zewsząd (rozwiązuje problemy CORS)
+// Render wymaga nasłuchiwania na zmiennej środowiskowej:
+const PORT = process.env.PORT || 3080;
+
+// CORS – pozwalamy na połączenia z dowolnej domeny
 app.use(cors());
 
-// Zwiększamy limit danych (dla obrazków)
+// Zwiększamy limit JSON (potrzebne dla obrazów base64)
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
-// WAŻNE: Serwowanie plików statycznych (HTML, CSS, JS) z tego samego folderu
+// Serwowanie plików statycznych (opcjonalnie)
 app.use(express.static(__dirname));
 
-// Obsługa głównej strony - gdy wejdziesz na localhost:3000
+// Strona główna (opcjonalnie, Render i tak serwuje tylko API)
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.send("PDF Generator API działa poprawnie.");
 });
 
-// Generowanie PDF
+// Endpoint generowania PDF
 app.post('/generate-pdf', async (req, res) => {
     const { html, width, height, css } = req.body;
 
-    console.log(`Otrzymano żądanie generowania PDF: ${width}x${height}`);
+    console.log(`Otrzymano żądanie PDF: ${width} x ${height}`);
 
     try {
         const browser = await puppeteer.launch({
             headless: "new",
-            args: ['--no-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
+
         const page = await browser.newPage();
 
         const content = `
@@ -43,7 +46,6 @@ app.post('/generate-pdf', async (req, res) => {
                 <style>
                     ${css}
                     body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
-                    .stamp { border: none !important; margin: 0 !important; }
                 </style>
             </head>
             <body>
@@ -53,8 +55,8 @@ app.post('/generate-pdf', async (req, res) => {
         `;
 
         await page.setContent(content, { waitUntil: 'networkidle0' });
-        
-        // Czekamy na fonty
+
+        // Czekamy na załadowanie fontów
         await page.evaluateHandle('document.fonts.ready');
 
         const pdfBuffer = await page.pdf({
@@ -70,6 +72,7 @@ app.post('/generate-pdf', async (req, res) => {
             'Content-Type': 'application/pdf',
             'Content-Length': pdfBuffer.length
         });
+
         res.send(pdfBuffer);
         console.log("PDF wygenerowany i wysłany.");
 
@@ -79,9 +82,7 @@ app.post('/generate-pdf', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`\n--- SERWER URUCHOMIONY ---`);
-    console.log(`1. Nie otwieraj pliku index.html dwuklikiem.`);
-    console.log(`2. Wejdź w przeglądarce na adres: http://localhost:${PORT}`);
-    console.log(`--------------------------\n`);
+// NAJWAŻNIEJSZA ZMIANA dla RENDER:
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
 });
